@@ -1,12 +1,17 @@
 <?php
 /**
- * Simple Mattermost /slash service dispatcher and responder written in PHP
  * mmsrvdispatch.php
+ * Simple Mattermost /slash service dispatcher and responder written in PHP
  *
- * Author Joaquim Homrighausen | <joho@boojam.se> | @joho68 | joho1968
- * Version 2017.03, tested with Mattermost 3.7.x
+ * Written by Joaquim Homrighausen | https://github.com/joho1968
  *
- * Sponsored by WebbPlatsen i Sverige AB, Stockholm Sweden, www.webbplatsen.se
+ * Version 2025.05
+ *   - tested with Mattermost 10.7.x
+ *   - switched to https://api.chucknorris.io
+ * Version 2017.03
+ *   - tested with Mattermost 3.7.x
+ *
+ * Sponsored by WebbPlatsen i Sverige AB, Sweden, www.webbplatsen.se
  *
  * If you are a DeltaFelter or if you break this code, you own all the pieces :)
  *
@@ -27,7 +32,7 @@
  *
  *
  * MIT License
- * Copyright (c) 2017 ComXSentio AB; All rights reserved.
+ * Copyright 2017-2025 Joaquim Homrighausen; All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -50,30 +55,108 @@
  */
 
 
-//The URL for the request in Mattermost should be:
-//  https://this.server.com/mmsrvdispatch.php?slash
-//It should be a POST request from Mattermost
-//The ?slash is merely there to possibly avoid mistakes :)
+
+/**
+ * The URL for the request in Mattermost should be:
+ *   https://this.server.com/mmsrvdispatch.php?slash
+ *
+ * It should be a POST request from Mattermost.
+ * The ?slash is merely there to possibly avoid mistakes :)
+ */
 
 
-//Comment this line if you don't want logging
-define ('MMSRV_LOG', true);
+// Comment this line if you don't want logging
+define( 'MMSRV_LOG', true );
+// Comment this line if you don't want logging of requests
+define( 'MMSRV_LOG_REQ', false );
 
-//It may be a good idea to limit which IP addresses can make requests
+// Fetch "wrapper" (not really, but..)
+
+function fetchFromURL( $the_url ) {
+    if ( extension_loaded( 'curl' ) && function_exists( 'curl_exec' ) ) {
+        $curl_handle = curl_init( $the_url );
+        if ( $curl_handle === false ) {
+            if ( defined( 'MMSRV_LOG' ) ) {
+                error_log( basename( __FILE__ ) . ': curl_init() failed' );
+            }
+            return( false );
+        }
+        $curl_options = array(
+            CURLOPT_HEADER => 0,
+            CURLOPT_POST => false,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_NOSIGNAL => 1,
+            CURLOPT_NOPROGRESS => 1,
+            CURLOPT_FRESH_CONNECT => 1,
+            CURLOPT_FORBID_REUSE => 1,
+            CURLOPT_TIMEOUT_MS => 10000,
+        );
+        if ( ! curl_setopt_array( $curl_handle, $curl_options ) ) {
+            if ( defined( 'MMSRV_LOG' ) ) {
+                error_log( basename( __FILE__ ) . ': curl_setopt_array() failed' );
+            }
+            unset( $curl_handle );
+            return( false );
+        }
+        $curl_result = curl_exec( $curl_handle );
+        if ( $curl_result === false ) {
+            if ( defined( 'MMSRV_LOG' ) ) {
+                error_log( basename( __FILE__ ) . ': curl_exec() failed' );
+                $curl_error = curl_error( $curl_handle );
+                if ( ! empty( $curl_error ) ) {
+                    error_log( basename( __FILE__ ) . ': curl_error() is "' . $curl_error . '"' );
+                }
+            }
+            unset( $curl_handle );
+            return( false );
+        }
+        $curl_info = curl_getinfo( $curl_handle );
+        if ( ! is_array( $curl_info ) ) {
+            if ( defined( 'MMSRV_LOG' ) ) {
+                error_log( basename( __FILE__ ) . ': curl_getinfo() failed' );
+            }
+            unset( $curl_handle );
+            return( false );
+        }
+        if ( empty( $curl_info['http_code'] ) || $curl_info['http_code'] !== 200 ) {
+            if ( defined( 'MMSRV_LOG' ) ) {
+                if ( empty( $curl_info['http_code'] ) ) {
+                    error_log( basename( __FILE__ ) . ': curl_info() has no http_code' );
+                } else {
+                    error_log( basename( __FILE__ ) . ': curl_info() has HTTP code ' . $curl_info['http_code'] );
+                }
+            }
+            unset( $curl_handle );
+            return( false );
+        }
+        // Close connection
+        unset( $curl_handle );
+        // Return result
+        return( $curl_result );
+    }
+    // No cURL, use file_get_contents
+    return( file_get_contents( $the_url ) );
+}
+
+
+// It may be a good idea to limit which IP addresses can make requests
 $cfgHost = array ('allow.request.from.ip1', 'allow.request.from.ip2');
-//or
+// or
 $cfgHost = array (); //Disallow everyone :)
-//or
+// or
 $cfgHost = array ('*');//Special case, allow everyone
+//
+$cfgHost = array( '1.2.3.4' );
 
-if (!in_array ('*', $cfgHost) &&
-        !empty ($_SERVER) &&
-            !empty ($_SERVER ['REMOTE_ADDR']) &&
-                !in_array ($_SERVER ['REMOTE_ADDR'], $cfgHost))
+
+if ( ! in_array( '*', $cfgHost ) &&
+        ! empty( $_SERVER ) &&
+            ! empty( $_SERVER ['REMOTE_ADDR'] ) &&
+                ! in_array( $_SERVER ['REMOTE_ADDR'], $cfgHost ) )
     {
-    //You may want to improve on this "not allowed page". One possibility is
-    //of course to return a suitable JSON response that basically says
-    //"Access denied"
+    // You may want to improve on this "not allowed page". One possibility is
+    // of course to return a suitable JSON response that basically says
+    // "Access denied"
     ?>
     <!DOCTYPE html>
     <html>
@@ -94,94 +177,68 @@ if (!in_array ('*', $cfgHost) &&
       <p>If you have questions about this page, please feel free to get in touch with us.</p>
     </body>
     <?php
-    die ();
+    die();
     }
 
-//Possibly log the request
-if (defined ('MMSRV_LOG'))
-    {
-    //Figure out where we are. We try not to use things like realpath and other
-    //"intelligent" functions since we may end up with open_basedir warnings and
-    //what not. You may find this ridiculous, if so, just choose your poison :)
-    
-    if (defined ('__DIR__'))
-        {
-        $logfn = __DIR__.'/'.basename ($_SERVER ['SCRIPT_FILENAME'], '.php').'.log';
-        }
-    else
-        {
-        $logfn = dirname (__FILE__).'/'.basename ($_SERVER ['SCRIPT_FILENAME'], '.php').'.log';
-        }
+// Possibly log the request
+if ( defined( 'MMSRV_LOG_REQ' ) ) {
+    error_log( basename( __FILE__ ) . ': ' .
+        sprintf( "===== Request from %s at %s =====\n", $_SERVER['REMOTE_ADDR'], date('Ymd.His' ) ) .
+        '  [POST] ' . var_export( $_POST, true ) . "\n" .
+        '  [GET] ' . var_export( $_GET, true ) . "\n" .
+        '  [REQUEST] ' . var_export( $_REQUEST, true ) );
+}// defined MMSRV_LOG_REQ
 
-    //Log the request
-    $fp = fopen ($logfn, 'ab');
-    if (is_resource ($fp))
-        {
-        fprintf ($fp, "===== Request from %s at %s =====\n\n", $_SERVER ['REMOTE_ADDR'], strftime ('%Y%m%d.%H%M%S'));
-        fwrite ($fp, "POST:\n");
-        fwrite ($fp, var_export ($_POST, true));
-        fprintf ($fp, "\n\n***\n\n");
-        fwrite ($fp, "GET:\n");
-        fwrite ($fp, var_export ($_GET, true));
-        fprintf ($fp, "\n\n***\n\n");
-        fwrite ($fp, "REQUEST:\n");
-        fwrite ($fp, var_export ($_REQUEST, true));
-        fprintf ($fp, "\n\n=================================\n\n");
-        fclose ($fp);
-        }
-    else
-        {
-        die ('No log'); //Comment this out if it doesn't matter if logging fails
-        }
-    }//defined MMSRV_LOG
+// Accept these Mattermost tokens
+$cfgToken = array( 'mattermosttoken1', 'mattermosttoken2' );
+// or
+$cfgToken = array(); //Allow no access
+// or
+$cfgToken = array( '*' ); //Accept any token (don't do this)
 
-//Accept these Mattermost tokens
-$cfgToken = array ('mattermosttoken1', 'mattermosttoken2');
-//or
-$cfgToken = array (); //Allow no access
-//or
-$cfgToken = array ('*'); //Accept any token (don't do this)
-
-//Some sanity checking
-if (empty ($_POST ['command']))
-    die ();//Command not set
-if (empty ($_POST ['token']))
+// Some sanity checking
+if ( empty( $_POST ['command'] ) ) {
+    die();// Command not set
+}
+if ( empty( $_POST['token'] ) ) {
     die ();//Token not set
-if (!in_array ('*', $cfgToken) && !in_array ($_POST ['token'], $cfgToken))
-    die ();//Token not in allowed list
+}
+if ( ! in_array( '*', $cfgToken ) && ! in_array( $_POST ['token'], $cfgToken ) ) {
+    die ();// Token not in allowed list
+}
 
-//Commands implemented:
+// Commands implemented:
 //
-// /bold  Returns bold text
-// /time  Returns current time (on dispatch server)
-// /emo   Returns link to emojis supported in MM (and others)
-// /chuck Returns the a Chuck Norris quote (from The Internet Chuck Norris Database)
+//  /bold  Returns bold text
+//  /time  Returns current time (on dispatch server)
+//  /emo   Returns link to emojis supported in MM (and others)
+//  /chuck Returns the a Chuck Norris quote (from The Internet Chuck Norris Database)
 //
 
-switch ($_POST ['command'])
-    {
-    case '/bold'://Usage /bold <theText>
-        if (!empty ($_POST ['text']))
-            $theText = '**'.trim ($_POST ['text']).'** :sheep:';
-        else
+switch( $_POST ['command'] ) {
+    case '/bold':// Usage /bold <theText>
+        if ( ! empty ($_POST ['text'] ) ) {
+            $theText = '**'.trim( $_POST ['text'] ) . '** :sheep:';
+        } else {
             $theText = 'Sorry, I need **something** to work with!';
-        $response = array (
+        }
+        $response = array(
             'response_type' => 'ephemeral',
             'text' => $theText,
             'username' => 'mmsrvdispatch',
-            );
-        header ('Content-type: application/json');
-        echo json_encode ($response);
+        );
+        header( 'Content-type: application/json' );
+        echo json_encode( $response );
         break;
     case '/time'://Usage /time
-        $response = array (
+        $response = array(
             'response_type' => 'ephemeral',
             'text' => 'Earth :watch: for dispatch server is '.strftime ('%Y-%m-%d %H:%M:%S'),
             'username' => 'mmsrvdispatch',
-            );
-        header ('Content-type: application/json');
-        echo json_encode ($response);
-        die ();
+        );
+        header( 'Content-type: application/json' );
+        echo json_encode( $response );
+        die();
         break;
     case '/emo'://Usage /emo
         $theText = 'There are too many emojis to display them all here, but if you use this link, you can find them all :smile:'.
@@ -197,56 +254,69 @@ switch ($_POST ['command'])
                    '|: sheep :|:sheep:|: smile :|:smile:|'.
                    "\n".
                    '';
-        $response = array (
+        $response = array(
             'response_type' => 'ephemeral',
             'text' => $theText,
             'username' => 'mmsrvdispatch',
-            );
-        header ('Content-type: application/json');
-        echo json_encode ($response);
+        );
+        header( 'Content-type: application/json' );
+        echo json_encode( $response );
         die ();
         break;
     case '/chuck':
-        $chucknorris = @file_get_contents ('http://api.icndb.com/jokes/random');
-        if ($chucknorris === false)
+        $the_url = 'https://api.chucknorris.io/jokes/random';
+        $show_categories = false;
+        if ( ! empty( $_POST['text'] ) ) {
+            $the_text = strtolower( $_POST['text'] );
+            if ( $the_text == '-cat') {
+                $show_categories = true;
+                $the_url = 'https://api.chucknorris.io/jokes/categories';
+            } else {
+                $the_url .= '?category=' . urlencode( $_POST['text'] );
+            }
+        }
+        $chucknorris = fetchFromURL( $the_url );
+        if ( $chucknorris === false ) {
             $theText = 'Unable to fetch random Chuck Norris joke, maybe he is angry today?';
-        else
-            {
-            $jsonText = json_decode ($chucknorris, true);
-            if (!is_array ($jsonText))
+            error_log( $theText );
+        } else {
+            $jsonText = json_decode( $chucknorris, true );
+            // error_log( print_r( $jsonText, true ) );
+            if ( ! is_array( $jsonText ) ) {
                 $theText = 'Unable to decode random Chuck Norris joke, maybe he is secret today?';
-            else
-                {
-                if (!empty ($jsonText ['type'])
-                        && $jsonText ['type'] == 'success'
-                            && !empty ($jsonText ['value']['joke']))
-                    {
-                    $theText = $jsonText ['value']['joke']."\nCourtesy of http://www.icndb.com :smile:\n";
-                    }
-                else
-                    {
+            } elseif ( ! empty( $jsonText['value'] ) )  {
+                $theText = $jsonText['value'] . "\nCourtesy of https://chucknorris.io :smile:\n";
+            } elseif ( $show_categories ) {
+                $theText = '##### Chuck Norris jokes categories' . "\n" .
+                           '```' . "\n" . implode( "\n", $jsonText ) . "\n" . '```';
+            } else {
+                if ( ! empty( $jsonText['type'] )
+                        && $jsonText['type'] == 'success'
+                            && ! empty( $jsonText ['value']['joke'] ) ) {
+                    $theText = $jsonText['value']['joke']."\nCourtesy of http://www.icndb.com :smile:\n";
+                } else {
                     $theText = 'No random Chuck Norris joke found, the joke may be you?';
-                    }
                 }
             }
+        }
         $response = array (
             'response_type' => 'ephemeral',
             'text' => $theText,
             'username' => 'chucknorris',
-            );
-        header ('Content-type: application/json');
-        echo json_encode ($response);
-        die ();
+        );
+        header( 'Content-type: application/json' );
+        echo json_encode( $response );
+        die();
         break;
     default:
         $response = array (
             'response_type' => 'ephemeral',
-            'text' => 'Sorry, we have not implemented '.$_POST ['command'],
+            'text' => 'Sorry, we have not implemented ' . $_POST['command'],
             'username' => 'mmsrvdispatch',
-            );
-        header ('Content-type: application/json');
-        echo json_encode ($response);
-        die ();
+        );
+        header( 'Content-type: application/json' );
+        echo json_encode( $response );
+        die();
         break;
     }//switch
 

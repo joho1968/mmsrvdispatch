@@ -1,6 +1,8 @@
 # mmsrvdispatch
 Simple Mattermost /slash service dispatcher and responder written in PHP, also featuring an extremely important /chuck command.
 
+It has been tested with PHP 7.x and PHP 8.1; it has been tested with Mattermost up to version 10.7.x.
+
 ## Usage
 
 This application is intended to be run as a "web service" in the regard that it receives a POST request (from Mattermost). How you do that is up to you. It should work with the Apache PHP module, fcgid, PHP-FPM, etc. The only _response_type_ used here is **ephemeral**. If you want the returned text to actually appear as a post, simply change to **in_channel**
@@ -11,7 +13,7 @@ Simply to start (or continue) building (yet another) PHP codebase for talking to
 
 ## Installation
 
-As exaplained above, you need to make mmsrvdispatch.php reachable via an URL, such as https://mymmservice.com/mmsrvdispatch.php. Once you can verify that you can reach that URL from your Mattermost installation, you should be more or less good to go. You also need to create a /slash command in Mattermost. For example:
+As explained above, you need to make mmsrvdispatch.php reachable via an URL, such as https://mymmservice.com/mmsrvdispatch.php. Once you can verify that you can reach that URL from your Mattermost installation, you should be more or less good to go. You also need to create a /slash command in Mattermost. For example:
 
 |Setting|Value|
 |-------|-----|
@@ -33,7 +35,9 @@ Commands implemented (you need to set-up one /slash hook for each in MM):
 |/bold  |Dummy command that returns the typed text in bold|
 |/time  |Returns time on (dispatch) server|
 |/emo   |Displays a link to an emoji cheat sheet|
-|/chuck |Returns the a Chuck Norris quote (from The Internet Chuck Norris Database)|
+|/chuck |Returns a Chuck Norris joke from chucknorris.io|
+|/chuck -cat |Returns list of Chuck Norris joke categories|
+|/chuck <category> |Returns Chuck Norris joke from <category>|
 
 Tailor to your own needs :)
 
