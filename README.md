@@ -37,7 +37,7 @@ Commands implemented (you need to set-up one /slash hook for each in MM):
 |/emo   |Displays a link to an emoji cheat sheet|
 |/chuck |Returns a Chuck Norris joke from chucknorris.io|
 |/chuck -cat |Returns list of Chuck Norris joke categories|
-|/chuck <category> |Returns Chuck Norris joke from <category>|
+|/chuck `<category>` |Returns Chuck Norris joke from `<category>`|
 
 Tailor to your own needs :)
 
